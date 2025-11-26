@@ -1,10 +1,11 @@
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
 using ApiEmail.Identity.Configurations;
 using ApiMail.Aplication.DTOs.Request;
 using ApiMail.Aplication.DTOs.Response;
 using ApiMail.Aplication.Interface.Services;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Options;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 
 namespace ApiEmail.Identity.Service
 {
@@ -14,11 +15,11 @@ namespace ApiEmail.Identity.Service
         private readonly UserManager<IdentityUser> _userManager;
         private readonly JwtOptions _jwtOptions;
 
-        public IdentityService(SignInManager<IdentityUser> singInManager, UserManager<IdentityUser> userManager, JwtOptions jwtOptions)
+        public IdentityService(SignInManager<IdentityUser> singInManager, UserManager<IdentityUser> userManager, IOptions<JwtOptions> jwtOptions)
         {
             _singInManager = singInManager;
             _userManager = userManager;
-            _jwtOptions = jwtOptions;
+            _jwtOptions = jwtOptions.Value;
         }
 
         public async Task<UsuarioCadastroResponse> CadastrarUsuario(UsuarioCadastroRequest usuarioCadastro)
@@ -48,8 +49,8 @@ namespace ApiEmail.Identity.Service
         {
             var result = await _singInManager.PasswordSignInAsync(usuarioLogin.Email, usuarioLogin.Senha, false, true);
 
-            // if (result.Succeeded)
-            //     return await GerarCredenciais(usuarioLogin.Email);
+            if (result.Succeeded)
+                return await GerarCredenciais(usuarioLogin.Email);
 
             var usuarioLoginResponse = new UsuarioLoginResponse();
             if (!result.Succeeded)
@@ -66,7 +67,7 @@ namespace ApiEmail.Identity.Service
             return usuarioLoginResponse;
         }
 
-        private async Task<UsuarioLoginResponse> GerarCredencias(string email)
+        private async Task<UsuarioLoginResponse> GerarCredenciais(string email)
         {
             var user = await _userManager.FindByEmailAsync(email);
             var accessTokenClaims = await ObterClaims(user, adicionarClaimsUsuario: true);
@@ -88,11 +89,16 @@ namespace ApiEmail.Identity.Service
 
         private string GerarToken(IEnumerable<Claim> claims, DateTime dataExpiracao)
         {
+            var agora = DateTime.UtcNow;
+            if(dataExpiracao < agora)
+            {
+                dataExpiracao = agora.AddMinutes(30);
+            }
             var jwt = new JwtSecurityToken(
                 issuer: _jwtOptions.Issuer,
                 audience: _jwtOptions.Audience,
                 claims: claims,
-                notBefore: DateTime.Now,
+                notBefore: agora,
                 expires: dataExpiracao,
                 signingCredentials: _jwtOptions.SigningCredentials);
 
