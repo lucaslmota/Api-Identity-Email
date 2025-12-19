@@ -61,6 +61,7 @@ namespace Api.Identity.Email.Extensions
             });
         }
 
+        //Add autorizção em de politica em determinado horario
         public static void AddAuthorizationPolicies(this IServiceCollection services)
         {
             services.AddSingleton<IAuthorizationHandler, HorarioComercialHandler>();

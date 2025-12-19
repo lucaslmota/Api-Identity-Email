@@ -1,30 +1,42 @@
 using ApiEmail.Identity.Configurations;
 using ApiMail.Aplication.DTOs.Request;
 using ApiMail.Aplication.DTOs.Response;
+using ApiMail.Aplication.Entity;
 using ApiMail.Aplication.Interface.Services;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using System.Text;
 
 namespace ApiEmail.Identity.Service
 {
     public class IdentityService : IIdentityService
     {
-        private readonly SignInManager<IdentityUser> _singInManager;
-        private readonly UserManager<IdentityUser> _userManager;
+        private readonly SignInManager<ApplicationUser> _singInManager;
+        private readonly UserManager<ApplicationUser> _userManager;
+        private readonly IEmailService _emailService;
         private readonly JwtOptions _jwtOptions;
+        private readonly IConfiguration _configuration;
 
-        public IdentityService(SignInManager<IdentityUser> singInManager, UserManager<IdentityUser> userManager, IOptions<JwtOptions> jwtOptions)
+        public IdentityService(SignInManager<ApplicationUser> singInManager, 
+                               UserManager<ApplicationUser> userManager, 
+                               IOptions<JwtOptions> jwtOptions, 
+                               IEmailService emailService,
+                               IConfiguration configuration)
         {
             _singInManager = singInManager;
             _userManager = userManager;
             _jwtOptions = jwtOptions.Value;
+            _emailService = emailService;
+            _configuration = configuration;
         }
 
         public async Task<UsuarioCadastroResponse> CadastrarUsuario(UsuarioCadastroRequest usuarioCadastro)
         {
-            var identityUser = new IdentityUser
+            var identityUser = new ApplicationUser
             {
                 UserName = usuarioCadastro.Email,
                 Email = usuarioCadastro.Email
@@ -34,6 +46,9 @@ namespace ApiEmail.Identity.Service
 
             if (result.Succeeded)
             {
+                //Efeito funcional: com LockoutEnabled = false
+                //o sistema de Identity não aplicará bloqueio por tentativas falhas
+                //(ou seja, MaxFailedAccessAttempts passa a ser ignorado para esse usuário).
                 await _userManager.SetLockoutEnabledAsync(identityUser, false);
             }
 
@@ -42,6 +57,14 @@ namespace ApiEmail.Identity.Service
             {
                 usuarioCadastroResponse.AdicionarErros(result.Errors.Select(r => r.Description));
             }
+
+            var token = await GenerateEmailConfirmationTokenAsync(identityUser);
+
+            var baseUrl = _configuration["AppSetting:BaseUrl"] ?? throw new InvalidOperationException("Url base não configurada");
+
+            var confirmationLink = $"{baseUrl}/api/v1/usuario/confirmemail?userId={identityUser.Id}&token={token}";
+
+            await _emailService.SendRegistrationConfirmationEmailAsync(identityUser.Email, "Lucas Teste", confirmationLink);
             return usuarioCadastroResponse;
         }
 
@@ -105,7 +128,7 @@ namespace ApiEmail.Identity.Service
             return new JwtSecurityTokenHandler().WriteToken(jwt);
         }
 
-        private async Task<IList<Claim>> ObterClaims(IdentityUser user, bool adicionarClaimsUsuario)
+        private async Task<IList<Claim>> ObterClaims(ApplicationUser user, bool adicionarClaimsUsuario)
         {
             var claims = new List<Claim>();
 
@@ -127,6 +150,42 @@ namespace ApiEmail.Identity.Service
             }
 
             return claims;
+        }
+
+        public async Task<string> GenerateEmailConfirmationTokenAsync(ApplicationUser applicationUser)
+        {
+            ArgumentNullException.ThrowIfNull(applicationUser);
+            var token = await _userManager.GenerateEmailConfirmationTokenAsync(applicationUser);
+            var encodedToken = WebEncoders.Base64UrlEncode(Encoding.UTF8.GetBytes(token));
+            return encodedToken;
+        }
+
+        public async Task<IdentityResult> ConfirmEmail(Guid id, string token)
+        {
+            if(id == null || string.IsNullOrEmpty(token))
+            {
+                return IdentityResult.Failed(new IdentityError { Description = "Id ou Token inválidos!"});
+            }
+
+            var user = await _userManager.FindByIdAsync(id.ToString());
+            if(user is null)
+            {
+                return IdentityResult.Failed(new IdentityError { Description = "Usuário não encontrado!" });
+            }
+
+            var decodedBytes = WebEncoders.Base64UrlDecode(token);
+
+            var decodedToken = Encoding.UTF8.GetString(decodedBytes);
+
+            var result = await _userManager.ConfirmEmailAsync(user, decodedToken);
+
+            if (result.Succeeded)
+            {
+                var baseUrl = _configuration["AppSetting:BaseUrl"] ?? throw new InvalidOperationException("BaseUrl não configurada!");
+                var loginLink = $"{baseUrl}/api/v1/usuario/confirmemail";
+                await _emailService.SendAccountCreatedEmailAsync(user.Email!, "Lucas mota", loginLink);
+            }
+            return result;
         }
     }
 }

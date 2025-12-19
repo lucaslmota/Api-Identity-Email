@@ -4,6 +4,7 @@ using ApiMail.Aplication.DTOs.Response;
 using ApiMail.Aplication.Interface.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 using System.Net;
 
 namespace Api.Identity.Email.Controllers.v1
@@ -12,8 +13,13 @@ namespace Api.Identity.Email.Controllers.v1
     public class UsuarioController : ApiControllerBase
     {
         private IIdentityService _identityService;
-        public UsuarioController(IIdentityService identityService) =>
-        _identityService = identityService;
+        private ILogger<UsuarioController> _logger;
+        public UsuarioController(IIdentityService identityService, ILogger<UsuarioController> logger)
+        {
+            _identityService = identityService;
+            _logger = logger;
+        }
+        
 
         /// <summary>
         /// Cadastro de usuário.
@@ -75,5 +81,32 @@ namespace Api.Identity.Email.Controllers.v1
             return Unauthorized();
         }
 
+        [HttpGet("usuario/confirmemail")]
+        public async Task<IActionResult> ConfirmEmail(Guid userId, string token)
+        {
+            try
+            {
+                if (userId == Guid.Empty || string.IsNullOrEmpty(token))
+                    return BadRequest("Invalid email confirmation request.");
+                var result = await _identityService.ConfirmEmail(userId, token);
+                if (result.Succeeded)
+                    return Ok("EmailConfirmed");
+                // Combine errors into one message or pass errors to the view
+                foreach (var error in result.Errors)
+                {
+                    ModelState.AddModelError("", error.Description);
+                    return BadRequest("Error");
+                }
+
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error confirming email for UserId: {UserId}", userId);
+                ModelState.AddModelError("", "An unexpected error occurred during email confirmation.");
+                return BadRequest("Error");
+            }
+
+            return BadRequest("Unknown error occurred during email confirmation.");
+        }
     }
 }
