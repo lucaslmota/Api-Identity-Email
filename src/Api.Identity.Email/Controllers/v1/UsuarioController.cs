@@ -44,7 +44,7 @@ namespace Api.Identity.Email.Controllers.v1
             var resultado = await _identityService.CadastrarUsuario(usuarioCadastro);
             if (resultado.Sucesso)
                 return Ok(resultado);
-            else if (resultado.Erros.Count > 0)
+            else if (resultado.Erros?.Count > 0)
             {
                 var problemDetails = new CustomProblemDetails(HttpStatusCode.BadRequest, Request, errors: resultado.Erros);
                 return BadRequest(problemDetails);
